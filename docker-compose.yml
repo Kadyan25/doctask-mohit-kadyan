@@ -22,10 +22,13 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-docdesk}:${POSTGRES_PASSWORD:-docdesk}@db:5432/${POSTGRES_DB:-docdesk}
+      DOCUMENT_STORAGE_PATH: /data/documents
+      WATCH_FOLDER_PATH: /data/watch
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - uploaded_docs:/data/documents
       - watched_docs:/data/watch
     depends_on:
       db:
@@ -47,5 +50,6 @@ services:
 
 volumes:
   db_data:
+  uploaded_docs:
   watched_docs:
   frontend_node_modules:

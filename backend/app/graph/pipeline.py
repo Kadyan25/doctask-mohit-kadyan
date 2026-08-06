@@ -1,33 +1,36 @@
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
+from app.graph.nodes.classify import classify
+from app.graph.nodes.detect_conflicts import detect_conflicts
+from app.graph.nodes.draft_deliverable import draft_deliverable
+from app.graph.nodes.extract_facts import extract_facts
+from app.graph.nodes.ingest import ingest
 from app.graph.state import PipelineState
 
-
-def _stage_a(state: PipelineState) -> PipelineState:
-    completed = list(state.get("stages_completed", []))
-    completed.append("stage_a")
-    return {**state, "stage": "stage_a_complete", "stages_completed": completed}
+MOVEMENT_1_NODES = ["ingest", "classify", "extract_facts", "detect_conflicts", "draft_deliverable"]
 
 
-def _stage_b(state: PipelineState) -> PipelineState:
-    completed = list(state.get("stages_completed", []))
-    completed.append("stage_b")
-    return {**state, "stage": "stage_b_complete", "stages_completed": completed}
-
-
-def build_graph(checkpointer: BaseCheckpointSaver, interrupt_after_stage_a: bool = False):
-    """Placeholder two-node graph for Phase 0. Its only job is to prove the
-    checkpoint/resume mechanism that every real Movement 1/2/3 node (Phase 1+)
-    will reuse — real ingest/extract/reconcile/etc. nodes replace stage_a/stage_b,
-    the graph-building and checkpointing pattern does not change.
+def build_graph(checkpointer: BaseCheckpointSaver, interrupt_after: list[str] | None = None):
+    """Movement 1 (Understand): ingest -> classify -> extract_facts ->
+    detect_conflicts -> draft_deliverable. `interrupt_after` lets tests pause
+    the graph after a given node to prove kill-and-resume — LangGraph
+    checkpoints after every node regardless of whether you ask it to pause,
+    so deliberately pausing here and continuing later exercises exactly the
+    code path a real crash-and-restart would.
     """
     graph = StateGraph(PipelineState)
-    graph.add_node("stage_a", _stage_a)
-    graph.add_node("stage_b", _stage_b)
-    graph.set_entry_point("stage_a")
-    graph.add_edge("stage_a", "stage_b")
-    graph.add_edge("stage_b", END)
+    graph.add_node("ingest", ingest)
+    graph.add_node("classify", classify)
+    graph.add_node("extract_facts", extract_facts)
+    graph.add_node("detect_conflicts", detect_conflicts)
+    graph.add_node("draft_deliverable", draft_deliverable)
 
-    interrupt_after = ["stage_a"] if interrupt_after_stage_a else []
-    return graph.compile(checkpointer=checkpointer, interrupt_after=interrupt_after)
+    graph.set_entry_point("ingest")
+    graph.add_edge("ingest", "classify")
+    graph.add_edge("classify", "extract_facts")
+    graph.add_edge("extract_facts", "detect_conflicts")
+    graph.add_edge("detect_conflicts", "draft_deliverable")
+    graph.add_edge("draft_deliverable", END)
+
+    return graph.compile(checkpointer=checkpointer, interrupt_after=interrupt_after or [])

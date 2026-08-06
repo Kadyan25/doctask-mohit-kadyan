@@ -1,13 +1,21 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.api.schemas import RunRead
+from app.db.models import Run
+from app.db.session import get_db
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
-@router.get("/{run_id}")
-def get_run(run_id: UUID):
-    raise HTTPException(status_code=501, detail="run status lands in Phase 1 (Movement 1)")
+@router.get("/{run_id}", response_model=RunRead)
+def get_run(run_id: UUID, db: Session = Depends(get_db)) -> Run:
+    run = db.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
 
 
 @router.get("/{run_id}/cost")

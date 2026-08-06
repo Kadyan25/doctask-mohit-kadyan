@@ -9,6 +9,8 @@ class PipelineState(TypedDict, total=False):
     pile_id: str
     run_id: str
     document_ids: list[str]
+    parsed_documents: dict  # document_id -> {filename, mime_type, lines: [{location, text}]}
+    doc_types: dict  # document_id -> classified type string
     facts: list[dict]
     conflicts: list[dict]
     deliverable: dict

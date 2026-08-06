@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://docdesk:docdesk@localhost:5433/docdesk"
     llm_provider: str = "fake"
     llm_api_key: str = ""
+    document_storage_path: str = "./data/documents"
     watch_folder_path: str = "/data/watch"
     mcp_server_port: int = 8001
     app_port: int = 8000
