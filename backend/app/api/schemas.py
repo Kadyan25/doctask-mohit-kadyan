@@ -84,6 +84,20 @@ class DeliverableSectionRead(BaseModel):
     updated_at: datetime
 
 
+class CostStageBreakdown(BaseModel):
+    stage_name: str
+    total_duration_ms: int
+    call_count: int
+    tokens_used: Optional[int] = None
+    cost_estimate: Optional[float] = None
+
+
+class CostReport(BaseModel):
+    run_id: uuid.UUID
+    total_duration_ms: int
+    stages: list[CostStageBreakdown]
+
+
 class ChangelogEntryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

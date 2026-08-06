@@ -7,6 +7,7 @@ from app.db.models import Conflict, DeliverableSection, Fact, PendingReview
 from app.db.session import SessionLocal
 from app.graph.checkpointer import get_checkpointer_dsn
 from app.graph.pipeline import build_graph
+from tests.conftest import create_run
 
 
 async def _run_pipeline(pile_id: str, document_ids: list[str]) -> dict:
@@ -16,7 +17,7 @@ async def _run_pipeline(pile_id: str, document_ids: list[str]) -> dict:
         await saver.setup()
         graph = build_graph(saver)
         return await graph.ainvoke(
-            {"pile_id": pile_id, "run_id": str(uuid.uuid4()), "document_ids": document_ids},
+            {"pile_id": pile_id, "run_id": create_run(pile_id), "document_ids": document_ids},
             config=config,
         )
 

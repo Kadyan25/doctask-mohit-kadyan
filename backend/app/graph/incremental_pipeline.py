@@ -8,6 +8,7 @@ from app.graph.nodes.draft_deliverable import draft_deliverable
 from app.graph.nodes.incremental_extract import incremental_extract
 from app.graph.nodes.ingest import ingest
 from app.graph.state import PipelineState
+from app.services.cost_tracker import timed_node
 
 
 def build_incremental_graph(checkpointer: BaseCheckpointSaver):
@@ -22,12 +23,12 @@ def build_incremental_graph(checkpointer: BaseCheckpointSaver):
     register renders, since they call the identical functions.
     """
     graph = StateGraph(PipelineState)
-    graph.add_node("ingest", ingest)
-    graph.add_node("classify", classify)
-    graph.add_node("incremental_extract", incremental_extract)
-    graph.add_node("detect_conflicts", detect_conflicts)
-    graph.add_node("draft_deliverable", draft_deliverable)
-    graph.add_node("changelog_entry", changelog_entry)
+    graph.add_node("ingest", timed_node("ingest")(ingest))
+    graph.add_node("classify", timed_node("classify")(classify))
+    graph.add_node("incremental_extract", timed_node("incremental_extract")(incremental_extract))
+    graph.add_node("detect_conflicts", timed_node("detect_conflicts")(detect_conflicts))
+    graph.add_node("draft_deliverable", timed_node("draft_deliverable")(draft_deliverable))
+    graph.add_node("changelog_entry", timed_node("changelog_entry")(changelog_entry))
 
     graph.set_entry_point("ingest")
     graph.add_edge("ingest", "classify")

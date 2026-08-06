@@ -4,9 +4,11 @@ import uuid
 import pytest
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+from app.db.models import Conflict, DeliverableSection
+from app.db.session import SessionLocal
 from app.graph.checkpointer import get_checkpointer_dsn
 from app.graph.pipeline import build_graph
-from tests.conftest import CANONICAL_CORPUS_FILES, cleanup_pile, seed_pile
+from tests.conftest import CANONICAL_CORPUS_FILES, cleanup_pile, create_run, seed_pile
 
 
 async def _run_once(pile_id: str, document_ids: list[str]) -> dict:
@@ -16,7 +18,7 @@ async def _run_once(pile_id: str, document_ids: list[str]) -> dict:
         await saver.setup()
         graph = build_graph(saver)
         return await graph.ainvoke(
-            {"pile_id": pile_id, "run_id": str(uuid.uuid4()), "document_ids": document_ids},
+            {"pile_id": pile_id, "run_id": create_run(pile_id), "document_ids": document_ids},
             config=config,
         )
 
@@ -24,11 +26,8 @@ async def _run_once(pile_id: str, document_ids: list[str]) -> dict:
 @pytest.mark.asyncio
 async def test_two_piles_run_concurrently_without_cross_contamination(tmp_path):
     """Behavior #9: two runs at the same time stay two runs. This covers the
-    "two piles" half of that behavior with the real pipeline. The harder
-    "same pile hit twice" half needs the deliverable-section upsert to be
-    race-safe (a unique constraint + ON CONFLICT/row locking) — that
-    hardening is Phase 4 scope per build-plan.md, not yet built, so it isn't
-    claimed here.
+    "two piles" half with the real pipeline; see the test below for the
+    harder "same pile hit twice" half.
     """
     pile_id_1, document_ids_1 = seed_pile(tmp_path, CANONICAL_CORPUS_FILES)
     pile_id_2, document_ids_2 = seed_pile(tmp_path, CANONICAL_CORPUS_FILES)
@@ -58,3 +57,50 @@ async def test_two_piles_run_concurrently_without_cross_contamination(tmp_path):
     finally:
         cleanup_pile(pile_id_1)
         cleanup_pile(pile_id_2)
+
+
+@pytest.mark.asyncio
+async def test_same_pile_hit_twice_concurrently_stays_consistent(tmp_path):
+    """Behavior #9's harder half: two runs against the SAME pile at the same
+    time, not just two different piles. The deliverable-section upsert and
+    conflict dedup are both atomic at the database level (unique constraints
+    + ON CONFLICT), so two concurrent writers targeting the same section or
+    the same conflict serialize through Postgres instead of one silently
+    clobbering the other or duplicate rows piling up.
+    """
+    pile_id, document_ids = seed_pile(tmp_path, CANONICAL_CORPUS_FILES)
+
+    try:
+        result_1, result_2 = await asyncio.gather(
+            _run_once(pile_id, document_ids),
+            _run_once(pile_id, document_ids),
+        )
+
+        for result in (result_1, result_2):
+            assert result["stages_completed"] == [
+                "ingest",
+                "classify",
+                "extract_facts",
+                "detect_conflicts",
+                "draft_deliverable",
+            ]
+
+        with SessionLocal() as db:
+            sections = db.query(DeliverableSection).filter(DeliverableSection.pile_id == pile_id).all()
+            assert {s.section_key for s in sections} == {
+                "status_summary",
+                "milestones",
+                "action_items",
+                "conflicts",
+            }
+            # Exactly one row per section, not two — the unique constraint
+            # held even with two concurrent writers targeting the same row.
+            assert len(sections) == 4
+
+            conflicts = db.query(Conflict).filter(Conflict.pile_id == pile_id).all()
+            descriptions = [c.description for c in conflicts]
+            # No duplicate conflict rows, even though both runs independently
+            # detected the identical set from the identical corpus.
+            assert len(descriptions) == len(set(descriptions))
+    finally:
+        cleanup_pile(pile_id)

@@ -6,6 +6,7 @@ from app.graph.examine_state import ExamineState
 from app.graph.nodes.check_one_rule import check_one_rule
 from app.graph.nodes.load_rules import load_rules
 from app.graph.nodes.produce_findings import produce_findings
+from app.services.cost_tracker import timed_node
 
 
 def _route_to_rule_checks(state: ExamineState):
@@ -22,9 +23,9 @@ def build_examine_graph(checkpointer: BaseCheckpointSaver):
     pipeline. produce_findings aggregates once every branch has completed.
     """
     graph = StateGraph(ExamineState)
-    graph.add_node("load_rules", load_rules)
-    graph.add_node("check_one_rule", check_one_rule)
-    graph.add_node("produce_findings", produce_findings)
+    graph.add_node("load_rules", timed_node("load_rules")(load_rules))
+    graph.add_node("check_one_rule", timed_node("check_one_rule")(check_one_rule))
+    graph.add_node("produce_findings", timed_node("produce_findings")(produce_findings))
 
     graph.set_entry_point("load_rules")
     graph.add_conditional_edges("load_rules", _route_to_rule_checks, ["check_one_rule", "produce_findings"])

@@ -1,3 +1,5 @@
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from app.db.models import Conflict, Document, PendingReview
 from app.db.session import SessionLocal
 from app.graph.state import PipelineState
@@ -41,19 +43,24 @@ def detect_conflicts(state: PipelineState) -> PipelineState:
         for result in find_embedded_instructions(facts):
             conflicts.append({**result, "conflict_type": "embedded_instruction_attempt"})
 
-        # Dedup by description: detect_conflicts can run more than once against
-        # a growing fact set (Movement 3 re-runs it on every new-document
-        # arrival) — without this, every prior conflict would get re-inserted
-        # and re-queued for review each time, not just genuinely new ones.
-        existing_descriptions = {
-            c.description for c in db.query(Conflict).filter(Conflict.pile_id == pile_id).all()
-        }
-        new_conflicts = [c for c in conflicts if c["description"] not in existing_descriptions]
+        # Dedup via the (pile_id, description) unique constraint + ON CONFLICT
+        # DO NOTHING — atomic at the database level. detect_conflicts can run
+        # more than once against a growing fact set (Movement 3 re-runs it on
+        # every new-document arrival, and two runs can race on the same
+        # pile) — an app-level "check existing, then insert" has a
+        # time-of-check-to-time-of-use gap; this doesn't.
+        for c in conflicts:
+            stmt = (
+                pg_insert(Conflict)
+                .values(pile_id=pile_id, fact_ids=[], description=c["description"], status="pending")
+                .on_conflict_do_nothing(index_elements=["pile_id", "description"])
+                .returning(Conflict.id)
+            )
+            row = db.execute(stmt).first()
+            if row is None:
+                continue  # already existed — genuinely not a new conflict
 
-        for c in new_conflicts:
-            conflict_row = Conflict(pile_id=pile_id, fact_ids=[], description=c["description"], status="pending")
-            db.add(conflict_row)
-            db.flush()
+            conflict_id = row[0]
             review_row = PendingReview(
                 pile_id=pile_id,
                 item_type="conflict",
@@ -61,12 +68,12 @@ def detect_conflicts(state: PipelineState) -> PipelineState:
                     "description": c["description"],
                     "citations": c["citations"],
                     "conflict_type": c["conflict_type"],
-                    "conflict_id": str(conflict_row.id),
+                    "conflict_id": str(conflict_id),
                 },
                 status="pending",
             )
             db.add(review_row)
-            c["conflict_id"] = str(conflict_row.id)
+            c["conflict_id"] = str(conflict_id)
         db.commit()
 
     stages_completed = list(state.get("stages_completed", []))

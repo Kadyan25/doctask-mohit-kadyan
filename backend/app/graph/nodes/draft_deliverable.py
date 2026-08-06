@@ -10,10 +10,22 @@ def draft_deliverable(state: PipelineState) -> PipelineState:
     conflicts = state.get("conflicts", [])
     pile_id = state["pile_id"]
 
-    status_facts = [f for f in facts if f["fact_type"] == "status"]
-    percent_facts = [f for f in facts if f["fact_type"] == "percent_complete"]
-    milestone_facts = [f for f in facts if f["fact_type"] == "milestone"]
-    action_facts = [f for f in facts if f["fact_type"] == "action_item"]
+    # Sorted by citation_location — draft_deliverable is the single source of
+    # truth for render order, deliberately independent of whatever order
+    # `facts` arrives in (Movement 1's in-memory extraction order and
+    # Movement 3's reloaded-from-DB order are not guaranteed to match one
+    # another otherwise, which would make "byte-identical untouched
+    # sections" false whenever an unrelated section got rebuilt).
+    status_facts = sorted((f for f in facts if f["fact_type"] == "status"), key=lambda f: f["citation_location"])
+    percent_facts = sorted(
+        (f for f in facts if f["fact_type"] == "percent_complete"), key=lambda f: f["citation_location"]
+    )
+    milestone_facts = sorted(
+        (f for f in facts if f["fact_type"] == "milestone"), key=lambda f: f["citation_location"]
+    )
+    action_facts = sorted(
+        (f for f in facts if f["fact_type"] == "action_item"), key=lambda f: f["citation_location"]
+    )
 
     status_lines = [f"- {f['value']} ({f['citation_location']})" for f in status_facts]
     percent_lines = [f"- {f['value']}% ({f['citation_location']})" for f in percent_facts]
@@ -42,7 +54,8 @@ def draft_deliverable(state: PipelineState) -> PipelineState:
     )
 
     if conflicts:
-        conflict_lines = [f"- [{c['conflict_type']}] {c['description']}" for c in conflicts]
+        sorted_conflicts = sorted(conflicts, key=lambda c: (c["conflict_type"], c["description"]))
+        conflict_lines = [f"- [{c['conflict_type']}] {c['description']}" for c in sorted_conflicts]
         conflicts_section = "# Conflicts Awaiting Review\n\n" + "\n".join(conflict_lines)
     else:
         conflicts_section = "# Conflicts Awaiting Review\n\nNo conflicts detected — clean corpus."

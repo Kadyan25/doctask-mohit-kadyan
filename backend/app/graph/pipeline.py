@@ -7,6 +7,7 @@ from app.graph.nodes.draft_deliverable import draft_deliverable
 from app.graph.nodes.extract_facts import extract_facts
 from app.graph.nodes.ingest import ingest
 from app.graph.state import PipelineState
+from app.services.cost_tracker import timed_node
 
 MOVEMENT_1_NODES = ["ingest", "classify", "extract_facts", "detect_conflicts", "draft_deliverable"]
 
@@ -20,11 +21,11 @@ def build_graph(checkpointer: BaseCheckpointSaver, interrupt_after: list[str] | 
     code path a real crash-and-restart would.
     """
     graph = StateGraph(PipelineState)
-    graph.add_node("ingest", ingest)
-    graph.add_node("classify", classify)
-    graph.add_node("extract_facts", extract_facts)
-    graph.add_node("detect_conflicts", detect_conflicts)
-    graph.add_node("draft_deliverable", draft_deliverable)
+    graph.add_node("ingest", timed_node("ingest")(ingest))
+    graph.add_node("classify", timed_node("classify")(classify))
+    graph.add_node("extract_facts", timed_node("extract_facts")(extract_facts))
+    graph.add_node("detect_conflicts", timed_node("detect_conflicts")(detect_conflicts))
+    graph.add_node("draft_deliverable", timed_node("draft_deliverable")(draft_deliverable))
 
     graph.set_entry_point("ingest")
     graph.add_edge("ingest", "classify")

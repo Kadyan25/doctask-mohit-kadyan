@@ -7,6 +7,7 @@ from app.db.models import Conflict, Fact
 from app.db.session import SessionLocal
 from app.graph.checkpointer import get_checkpointer_dsn
 from app.graph.pipeline import build_graph
+from tests.conftest import create_run
 
 
 @pytest.mark.asyncio
@@ -25,7 +26,7 @@ async def test_kill_after_extract_facts_and_resume(seeded_pile):
         graph = build_graph(saver, interrupt_after=["extract_facts"])
 
         first = await graph.ainvoke(
-            {"pile_id": pile_id, "run_id": str(uuid.uuid4()), "document_ids": document_ids},
+            {"pile_id": pile_id, "run_id": create_run(pile_id), "document_ids": document_ids},
             config=config,
         )
         assert first["stages_completed"] == ["ingest", "classify", "extract_facts"]

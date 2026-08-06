@@ -41,12 +41,17 @@ pip install -r requirements.txt
 pytest
 ```
 
-Tests run against a real Postgres-backed LangGraph checkpointer, not mocks — see `tests/test_checkpointer.py` for the kill-and-resume and concurrent-runs proofs.
+Tests run against a real Postgres-backed LangGraph checkpointer, not mocks — see `tests/test_resume.py` (kill-and-resume), `tests/test_concurrency.py` (including the same-pile-hit-twice case), and `tests/test_watcher.py` (a real filesystem Observer, not just the graph it calls) for the load-bearing proofs.
+
+## MCP
+
+The same operations as the REST API, exposed as MCP tools at `/mcp` (streamable HTTP), sharing the identical compiled graphs: `create_pile`, `upload_document`, `submit_rule`, `start_run`, `start_examine`, `list_pending_review`, `approve_item`, `reject_item`, `get_deliverable`, `get_changelog`, `get_cost_report`. Approval — the human gate — is a callable tool, so a program can drive the whole flow end to end, including the gate itself.
 
 ## Logged assumptions
 
 - Domain chosen (software project delivery docs) over the brief's other suggested domains (contracts, loans, insurance, clinical) because it needs no outside domain expertise to build a credible, deliberately-contradicting synthetic corpus — see the project's `CLAUDE.md` for the reasoning.
-- MCP server exposes the same operations as the REST API (create_pile, upload_document, submit_rules, start_run, list_pending_review, approve_item, reject_item, get_deliverable, get_changelog, get_cost_report) — mirrored 1:1, per the brief's "strongest version of behavior four."
+- Cost/time tracking (`GET /runs/{id}/cost`) reports real wall-clock duration per stage. Token counts and a dollar cost estimate stay null under `LLM_PROVIDER=fake` (the default) rather than fabricated — the fake client makes no real calls, so a made-up number would be worse than an honest gap. `AnthropicLLMClient`'s real calls carry actual usage data that could be threaded through if the real provider becomes the default.
+- Same-pile-hit-twice concurrency (two runs racing on identical work) is handled via database-level unique constraints and `INSERT ... ON CONFLICT`, not application-level locking — verified in `tests/test_concurrency.py`.
 
 ---
 Built for the SuperDocs Round 2 engineering task.

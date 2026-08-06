@@ -8,7 +8,7 @@ from app.db.session import SessionLocal
 from app.graph.checkpointer import get_checkpointer_dsn
 from app.graph.examine_pipeline import build_examine_graph
 from app.graph.pipeline import build_graph
-from tests.conftest import GOVERNANCE_RULES, seed_rules
+from tests.conftest import GOVERNANCE_RULES, create_run, seed_rules
 
 
 async def _run_movement1(pile_id: str, document_ids: list[str]) -> dict:
@@ -18,7 +18,7 @@ async def _run_movement1(pile_id: str, document_ids: list[str]) -> dict:
         await saver.setup()
         graph = build_graph(saver)
         return await graph.ainvoke(
-            {"pile_id": pile_id, "run_id": str(uuid.uuid4()), "document_ids": document_ids},
+            {"pile_id": pile_id, "run_id": create_run(pile_id), "document_ids": document_ids},
             config=config,
         )
 
@@ -29,7 +29,7 @@ async def _run_movement2(pile_id: str) -> dict:
     async with AsyncPostgresSaver.from_conn_string(get_checkpointer_dsn()) as saver:
         await saver.setup()
         graph = build_examine_graph(saver)
-        return await graph.ainvoke({"pile_id": pile_id, "run_id": str(uuid.uuid4())}, config=config)
+        return await graph.ainvoke({"pile_id": pile_id, "run_id": create_run(pile_id)}, config=config)
 
 
 @pytest.mark.asyncio

@@ -94,6 +94,18 @@ def seed_pile(tmp_path: Path, filenames: list[str]) -> tuple[str, list[str]]:
     return pile_id, document_ids
 
 
+def create_run(pile_id: str) -> str:
+    """RunStageMetric rows have a real FK to runs.id (cost tracking is always
+    "cost of THIS run") — tests invoking a graph directly need an actual Run
+    row, not just a made-up UUID string, same as the real API path creates."""
+    with SessionLocal() as db:
+        run = Run(pile_id=pile_id, status="running", thread_id=str(uuid.uuid4()))
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return str(run.id)
+
+
 def seed_rules(pile_id: str, rule_texts: list[str]) -> list[str]:
     rule_ids = []
     with SessionLocal() as db:
