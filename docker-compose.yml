@@ -1,0 +1,51 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-docdesk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docdesk}
+      POSTGRES_DB: ${POSTGRES_DB:-docdesk}
+    # Not published to the host on purpose: backend reaches it over the internal
+    # compose network as `db:5432`, and not publishing avoids clashing with
+    # whatever Postgres a stranger already has running locally.
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docdesk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-docdesk}:${POSTGRES_PASSWORD:-docdesk}@db:5432/${POSTGRES_DB:-docdesk}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - watched_docs:/data/watch
+    depends_on:
+      db:
+        condition: service_healthy
+    # entrypoint.sh applies migrations then starts uvicorn
+
+  frontend:
+    build: ./frontend
+    environment:
+      API_PROXY_TARGET: http://backend:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host
+
+volumes:
+  db_data:
+  watched_docs:
+  frontend_node_modules:
