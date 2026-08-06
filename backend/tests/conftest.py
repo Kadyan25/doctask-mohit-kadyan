@@ -47,6 +47,21 @@ CANONICAL_CORPUS_FILES = [
     "change_request_001.md",
 ]
 
+# A second, deliberately clean project — no blockers contradicting status, no
+# undocumented scope decisions, no stale action items — proving the honest
+# "no findings" path is real and not just an untested code path.
+CLEAN_CORPUS_FILES = [
+    "clean_project_plan.md",
+    "clean_status_week1.md",
+    "clean_meeting_notes_week1.md",
+]
+
+GOVERNANCE_RULES = [
+    "No status report may say the project is on track while an open blocker exists for the same reporting period.",
+    "Every scope or date change must trace to an approved change request; the plan must not go out of date silently.",
+    "No action item may stay open past three consecutive meetings without an escalation note.",
+]
+
 
 def seed_pile(tmp_path: Path, filenames: list[str]) -> tuple[str, list[str]]:
     storage_dir = tmp_path / f"documents-{uuid.uuid4().hex[:8]}"
@@ -77,6 +92,18 @@ def seed_pile(tmp_path: Path, filenames: list[str]) -> tuple[str, list[str]]:
             document_ids.append(str(doc.id))
 
     return pile_id, document_ids
+
+
+def seed_rules(pile_id: str, rule_texts: list[str]) -> list[str]:
+    rule_ids = []
+    with SessionLocal() as db:
+        for text in rule_texts:
+            rule = Rule(pile_id=pile_id, rule_text=text, source="test")
+            db.add(rule)
+            db.commit()
+            db.refresh(rule)
+            rule_ids.append(str(rule.id))
+    return rule_ids
 
 
 def cleanup_pile(pile_id: str) -> None:
@@ -111,5 +138,12 @@ def seeded_pile_no_change_request(tmp_path):
     on (behavior #8's companion: the detector must be context-sensitive, not
     always-on; see test_pipeline_stages.py for the contrasting case)."""
     pile_id, document_ids = seed_pile(tmp_path, ["project_plan.md", "meeting_notes_week2.md"])
+    yield pile_id, document_ids
+    cleanup_pile(pile_id)
+
+
+@pytest.fixture
+def seeded_clean_pile(tmp_path):
+    pile_id, document_ids = seed_pile(tmp_path, CLEAN_CORPUS_FILES)
     yield pile_id, document_ids
     cleanup_pile(pile_id)

@@ -8,10 +8,11 @@ interface Props {
 }
 
 export function ConflictCard({ item, onApprove, onReject, busy }: Props) {
-  const { description, citations, conflict_type } = item.payload;
+  const { description, citations, conflict_type, rule_text } = item.payload;
+  const label = conflict_type ?? (rule_text ? `finding: ${rule_text.slice(0, 60)}...` : item.item_type);
   return (
     <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: "0.75rem 1rem", marginBottom: "0.75rem" }}>
-      <div style={{ fontSize: "0.75rem", textTransform: "uppercase", color: "#888" }}>{conflict_type}</div>
+      <div style={{ fontSize: "0.75rem", textTransform: "uppercase", color: "#888" }}>{label}</div>
       <p style={{ margin: "0.25rem 0" }}>{description}</p>
       <div style={{ fontSize: "0.75rem", color: "#666" }}>Citations: {citations?.join(", ")}</div>
       {item.status === "pending" ? (

@@ -7,6 +7,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.api import piles, review, runs
 from app.graph.checkpointer import get_checkpointer_dsn
+from app.graph.examine_pipeline import build_examine_graph
 from app.graph.pipeline import build_graph
 
 if sys.platform == "win32":
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
         await saver.setup()
         app.state.checkpointer = saver
         app.state.graph = build_graph(saver)
+        app.state.examine_graph = build_examine_graph(saver)
         yield
 
 

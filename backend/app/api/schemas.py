@@ -59,6 +59,21 @@ class ReviewDecision(BaseModel):
     reviewer: Optional[str] = None
 
 
+class RuleCreate(BaseModel):
+    rule_text: str
+    source: Optional[str] = None
+
+
+class RuleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    pile_id: uuid.UUID
+    rule_text: str
+    source: Optional[str]
+    created_at: datetime
+
+
 class DeliverableSectionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

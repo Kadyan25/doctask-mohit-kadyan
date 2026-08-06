@@ -29,16 +29,26 @@ export interface RunRead {
 export interface PendingReviewItem {
   id: string;
   pile_id: string;
-  item_type: string;
+  item_type: "conflict" | "finding";
   payload: {
     description: string;
     citations: string[];
     conflict_type?: string;
     conflict_id?: string;
+    rule_text?: string;
+    finding_id?: string;
   };
   status: string;
   reviewer: string | null;
   reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface Rule {
+  id: string;
+  pile_id: string;
+  rule_text: string;
+  source: string | null;
   created_at: string;
 }
 
@@ -73,6 +83,10 @@ export const api = {
     return request<DocumentRead>(`/piles/${pileId}/documents`, { method: "POST", body: form });
   },
   startRun: (pileId: string) => request<RunRead>(`/piles/${pileId}/runs`, { method: "POST" }),
+  submitRule: (pileId: string, ruleText: string) =>
+    request<Rule>(`/piles/${pileId}/rules`, { method: "POST", body: JSON.stringify({ rule_text: ruleText }) }),
+  listRules: (pileId: string) => request<Rule[]>(`/piles/${pileId}/rules`),
+  startExamine: (pileId: string) => request<RunRead>(`/piles/${pileId}/examine`, { method: "POST" }),
   listReview: (pileId: string) => request<PendingReviewItem[]>(`/piles/${pileId}/review`),
   approve: (itemId: string, reviewer: string) =>
     request<PendingReviewItem>(`/review/${itemId}/approve`, {

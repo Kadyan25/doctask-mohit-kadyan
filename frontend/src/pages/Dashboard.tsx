@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type DeliverableSection, type PendingReviewItem } from "../api/client";
+import { api, type DeliverableSection, type PendingReviewItem, type Rule } from "../api/client";
 import { DeliverableView } from "../components/DeliverableView";
 import { ReviewQueue } from "../components/ReviewQueue";
 
@@ -7,6 +7,8 @@ export function Dashboard() {
   const [pileId, setPileId] = useState<string | null>(null);
   const [pileName, setPileName] = useState("");
   const [files, setFiles] = useState<FileList | null>(null);
+  const [ruleText, setRuleText] = useState("");
+  const [rules, setRules] = useState<Rule[]>([]);
   const [status, setStatus] = useState("");
   const [reviewItems, setReviewItems] = useState<PendingReviewItem[]>([]);
   const [deliverable, setDeliverable] = useState<DeliverableSection[]>([]);
@@ -29,19 +31,36 @@ export function Dashboard() {
   }
 
   async function refresh(currentPileId: string) {
-    const [items, sections] = await Promise.all([
+    const [items, sections, currentRules] = await Promise.all([
       api.listReview(currentPileId),
       api.getDeliverable(currentPileId),
+      api.listRules(currentPileId),
     ]);
     setReviewItems(items);
     setDeliverable(sections);
+    setRules(currentRules);
   }
 
   async function handleStartRun() {
     if (!pileId) return;
-    setStatus("Running pipeline...");
+    setStatus("Running Movement 1 (understand)...");
     const run = await api.startRun(pileId);
     setStatus(`Run ${run.status}`);
+    await refresh(pileId);
+  }
+
+  async function handleAddRule() {
+    if (!pileId || !ruleText.trim()) return;
+    await api.submitRule(pileId, ruleText.trim());
+    setRuleText("");
+    await refresh(pileId);
+  }
+
+  async function handleStartExamine() {
+    if (!pileId) return;
+    setStatus("Running Movement 2 (examine)...");
+    const run = await api.startExamine(pileId);
+    setStatus(`Examine ${run.status}`);
     await refresh(pileId);
   }
 
@@ -94,7 +113,7 @@ export function Dashboard() {
           </section>
 
           <section style={{ marginBottom: "1.5rem" }}>
-            <h2>3. Run</h2>
+            <h2>3. Understand (Movement 1)</h2>
             <button onClick={handleStartRun}>Start run</button>
             <button onClick={() => refresh(pileId)} style={{ marginLeft: "0.5rem" }}>
               Refresh
@@ -102,12 +121,33 @@ export function Dashboard() {
           </section>
 
           <section style={{ marginBottom: "1.5rem" }}>
-            <h2>4. Review queue</h2>
+            <h2>4. Rules &amp; Examine (Movement 2)</h2>
+            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <input
+                style={{ flex: 1 }}
+                placeholder="e.g. No status report may say on track while an open blocker exists..."
+                value={ruleText}
+                onChange={(e) => setRuleText(e.target.value)}
+              />
+              <button onClick={handleAddRule}>Add rule</button>
+            </div>
+            {rules.length > 0 && (
+              <ul style={{ fontSize: "0.85rem", color: "#555" }}>
+                {rules.map((r) => (
+                  <li key={r.id}>{r.rule_text}</li>
+                ))}
+              </ul>
+            )}
+            <button onClick={handleStartExamine}>Start examine</button>
+          </section>
+
+          <section style={{ marginBottom: "1.5rem" }}>
+            <h2>5. Review queue</h2>
             <ReviewQueue items={reviewItems} onApprove={handleApprove} onReject={handleReject} busyId={busyId} />
           </section>
 
           <section>
-            <h2>5. Project Health Register</h2>
+            <h2>6. Project Health Register</h2>
             <DeliverableView sections={deliverable} />
           </section>
         </>

@@ -13,10 +13,12 @@ from app.api.schemas import (
     PendingReviewRead,
     PileCreate,
     PileRead,
+    RuleCreate,
+    RuleRead,
     RunRead,
 )
 from app.config import settings
-from app.db.models import ChangelogEntry, DeliverableSection, Document, PendingReview, Pile, Run
+from app.db.models import ChangelogEntry, DeliverableSection, Document, PendingReview, Pile, Rule, Run
 from app.db.session import get_db
 from app.services.document_parser import SUPPORTED_EXTENSIONS
 
@@ -72,9 +74,21 @@ async def upload_document(pile_id: uuid.UUID, file: UploadFile, db: Session = De
     return document
 
 
-@router.post("/{pile_id}/rules")
-def submit_rules(pile_id: uuid.UUID):
-    raise HTTPException(status_code=501, detail="rules/checklist intake lands in Phase 2 (Movement 2)")
+@router.post("/{pile_id}/rules", response_model=RuleRead)
+def submit_rule(pile_id: uuid.UUID, payload: RuleCreate, db: Session = Depends(get_db)) -> Rule:
+    pile = db.get(Pile, pile_id)
+    if pile is None:
+        raise HTTPException(status_code=404, detail="pile not found")
+    rule = Rule(pile_id=pile_id, rule_text=payload.rule_text, source=payload.source)
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    return rule
+
+
+@router.get("/{pile_id}/rules", response_model=list[RuleRead])
+def list_rules(pile_id: uuid.UUID, db: Session = Depends(get_db)) -> list[Rule]:
+    return db.query(Rule).filter(Rule.pile_id == pile_id).all()
 
 
 @router.post("/{pile_id}/runs", response_model=RunRead)
@@ -100,6 +114,41 @@ async def start_run(pile_id: uuid.UUID, request: Request, db: Session = Depends(
         "run_id": str(run.id),
         "document_ids": [str(d.id) for d in documents],
     }
+
+    try:
+        await graph.ainvoke(initial_state, config=config)
+        run.status = "completed"
+    except Exception as exc:  # noqa: BLE001 — surfaced via run.status, not swallowed
+        run.status = "failed"
+        run.thread_id = f"{thread_id} ({exc})"[:255]
+    finally:
+        run.completed_at = datetime.now(timezone.utc)
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+
+    return run
+
+
+@router.post("/{pile_id}/examine", response_model=RunRead)
+async def start_examine(pile_id: uuid.UUID, request: Request, db: Session = Depends(get_db)) -> Run:
+    """Movement 2: re-examines facts Movement 1 already extracted against the
+    pile's rules. Does not re-parse or re-extract — if you haven't run
+    `/runs` yet, there are no facts to check and every rule will honestly
+    find nothing, not fail."""
+    pile = db.get(Pile, pile_id)
+    if pile is None:
+        raise HTTPException(status_code=404, detail="pile not found")
+
+    thread_id = str(uuid.uuid4())
+    run = Run(pile_id=pile_id, status="running", thread_id=thread_id)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    graph = request.app.state.examine_graph
+    config = {"configurable": {"thread_id": thread_id}}
+    initial_state = {"pile_id": str(pile_id), "run_id": str(run.id)}
 
     try:
         await graph.ainvoke(initial_state, config=config)
