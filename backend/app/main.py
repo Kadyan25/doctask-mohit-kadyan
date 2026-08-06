@@ -8,7 +8,9 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from app.api import piles, review, runs
 from app.graph.checkpointer import get_checkpointer_dsn
 from app.graph.examine_pipeline import build_examine_graph
+from app.graph.incremental_pipeline import build_incremental_graph
 from app.graph.pipeline import build_graph
+from app.services.watcher import start_watcher
 
 if sys.platform == "win32":
     # psycopg's async mode requires a selector-based loop; Windows defaults
@@ -25,7 +27,15 @@ async def lifespan(app: FastAPI):
         app.state.checkpointer = saver
         app.state.graph = build_graph(saver)
         app.state.examine_graph = build_examine_graph(saver)
-        yield
+        app.state.incremental_graph = build_incremental_graph(saver)
+
+        loop = asyncio.get_event_loop()
+        observer = start_watcher(loop, app.state.incremental_graph)
+        try:
+            yield
+        finally:
+            observer.stop()
+            observer.join()
 
 
 app = FastAPI(title="Document Health Register", lifespan=lifespan)

@@ -27,8 +27,17 @@ router = APIRouter(prefix="/piles", tags=["piles"])
 
 @router.post("", response_model=PileRead)
 def create_pile(payload: PileCreate, db: Session = Depends(get_db)) -> Pile:
-    pile = Pile(name=payload.name, watch_folder_path=payload.watch_folder_path)
+    pile = Pile(name=payload.name)
     db.add(pile)
+    db.commit()
+    db.refresh(pile)
+
+    # Every pile gets a watched folder for free — dropping a file here is the
+    # entire Movement 3 trigger, no API call required. payload.watch_folder_path
+    # is accepted but overridden: the watcher only looks under WATCH_FOLDER_PATH.
+    watch_dir = Path(settings.watch_folder_path) / str(pile.id)
+    watch_dir.mkdir(parents=True, exist_ok=True)
+    pile.watch_folder_path = str(watch_dir)
     db.commit()
     db.refresh(pile)
     return pile

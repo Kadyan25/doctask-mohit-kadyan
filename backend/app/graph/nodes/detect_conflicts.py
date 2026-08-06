@@ -41,7 +41,16 @@ def detect_conflicts(state: PipelineState) -> PipelineState:
         for result in find_embedded_instructions(facts):
             conflicts.append({**result, "conflict_type": "embedded_instruction_attempt"})
 
-        for c in conflicts:
+        # Dedup by description: detect_conflicts can run more than once against
+        # a growing fact set (Movement 3 re-runs it on every new-document
+        # arrival) — without this, every prior conflict would get re-inserted
+        # and re-queued for review each time, not just genuinely new ones.
+        existing_descriptions = {
+            c.description for c in db.query(Conflict).filter(Conflict.pile_id == pile_id).all()
+        }
+        new_conflicts = [c for c in conflicts if c["description"] not in existing_descriptions]
+
+        for c in new_conflicts:
             conflict_row = Conflict(pile_id=pile_id, fact_ids=[], description=c["description"], status="pending")
             db.add(conflict_row)
             db.flush()
