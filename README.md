@@ -31,7 +31,7 @@ This builds and starts Postgres+pgvector, the backend, and the frontend; the bac
 - Backend: http://localhost:8000
 - API docs: http://localhost:8000/docs
 
-No live LLM key is required to run this — `LLM_PROVIDER=fake` (the default in `.env.example`) uses a deterministic stub so the stack, and the test suite, run for free. Two real providers are also wired in for demoing genuine AI extraction: set `ANTHROPIC_API_KEY` and/or `GEMINI_API_KEY` (optionally `GEMINI_API_KEY_2` too — the two keys round-robin for roughly double the effective free-tier throughput). Gemini defaults to `gemini-2.5-flash-lite` and self-paces each key to the free tier's 15 RPM ceiling, with retry-with-backoff on 429s, so it costs nothing to demo. The frontend has a per-run LLM-provider dropdown (Fake/Gemini/Anthropic, defaulting to Fake) next to "Start run" and "Start examine" — no restart required to switch, since all configured keys are available to the backend at once.
+No live LLM key is required to run this — `LLM_PROVIDER=fake` (the default in `.env.example`) uses a deterministic stub so the stack, and the test suite, run for free. Two real providers are also wired in for demoing genuine AI extraction: set `ANTHROPIC_API_KEY` and/or `GEMINI_API_KEY` (optionally `GEMINI_API_KEY_2` too — the two keys round-robin for roughly double the effective free-tier throughput). Gemini defaults to `gemini-3.5-flash-lite` and self-paces each key to the free tier's 15 RPM ceiling, with retry-with-backoff on 429s, so it costs nothing to demo. The frontend has a per-run LLM-provider dropdown (Fake/Gemini/Anthropic, defaulting to Fake) next to "Start run" and "Start examine" — no restart required to switch, since all configured keys are available to the backend at once.
 
 ## Running tests
 
