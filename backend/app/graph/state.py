@@ -8,6 +8,7 @@ class PipelineState(TypedDict, total=False):
 
     pile_id: str
     run_id: str
+    llm_provider: Optional[str]  # per-run override of LLM_PROVIDER; None means use the env default
     document_ids: list[str]
     parsed_documents: dict  # document_id -> {filename, mime_type, lines: [{location, text}]}
     doc_types: dict  # document_id -> classified type string

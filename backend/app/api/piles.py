@@ -15,6 +15,7 @@ from app.api.schemas import (
     PileRead,
     RuleCreate,
     RuleRead,
+    RunCreate,
     RunRead,
 )
 from app.config import settings
@@ -23,6 +24,13 @@ from app.db.session import get_db
 from app.services.document_parser import SUPPORTED_EXTENSIONS
 
 router = APIRouter(prefix="/piles", tags=["piles"])
+
+_VALID_LLM_PROVIDERS = {"fake", "anthropic", "gemini"}
+
+
+def _validate_llm_provider(provider: str | None) -> None:
+    if provider is not None and provider not in _VALID_LLM_PROVIDERS:
+        raise HTTPException(status_code=422, detail=f"unknown llm_provider {provider!r} — expected one of {sorted(_VALID_LLM_PROVIDERS)}")
 
 
 @router.post("", response_model=PileRead)
@@ -101,7 +109,10 @@ def list_rules(pile_id: uuid.UUID, db: Session = Depends(get_db)) -> list[Rule]:
 
 
 @router.post("/{pile_id}/runs", response_model=RunRead)
-async def start_run(pile_id: uuid.UUID, request: Request, db: Session = Depends(get_db)) -> Run:
+async def start_run(
+    pile_id: uuid.UUID, request: Request, payload: RunCreate = RunCreate(), db: Session = Depends(get_db)
+) -> Run:
+    _validate_llm_provider(payload.llm_provider)
     pile = db.get(Pile, pile_id)
     if pile is None:
         raise HTTPException(status_code=404, detail="pile not found")
@@ -121,6 +132,7 @@ async def start_run(pile_id: uuid.UUID, request: Request, db: Session = Depends(
     initial_state = {
         "pile_id": str(pile_id),
         "run_id": str(run.id),
+        "llm_provider": payload.llm_provider,
         "document_ids": [str(d.id) for d in documents],
     }
 
@@ -140,11 +152,14 @@ async def start_run(pile_id: uuid.UUID, request: Request, db: Session = Depends(
 
 
 @router.post("/{pile_id}/examine", response_model=RunRead)
-async def start_examine(pile_id: uuid.UUID, request: Request, db: Session = Depends(get_db)) -> Run:
+async def start_examine(
+    pile_id: uuid.UUID, request: Request, payload: RunCreate = RunCreate(), db: Session = Depends(get_db)
+) -> Run:
     """Movement 2: re-examines facts Movement 1 already extracted against the
     pile's rules. Does not re-parse or re-extract — if you haven't run
     `/runs` yet, there are no facts to check and every rule will honestly
     find nothing, not fail."""
+    _validate_llm_provider(payload.llm_provider)
     pile = db.get(Pile, pile_id)
     if pile is None:
         raise HTTPException(status_code=404, detail="pile not found")
@@ -157,7 +172,7 @@ async def start_examine(pile_id: uuid.UUID, request: Request, db: Session = Depe
 
     graph = request.app.state.examine_graph
     config = {"configurable": {"thread_id": thread_id}}
-    initial_state = {"pile_id": str(pile_id), "run_id": str(run.id)}
+    initial_state = {"pile_id": str(pile_id), "run_id": str(run.id), "llm_provider": payload.llm_provider}
 
     try:
         await graph.ainvoke(initial_state, config=config)

@@ -137,21 +137,25 @@ async def _run_graph(pile_id: str, graph, initial_state: dict) -> dict:
 
 
 @mcp.tool()
-async def start_run(pile_id: str) -> dict:
+async def start_run(pile_id: str, llm_provider: str | None = None) -> dict:
     """Movement 1: run the agentic pipeline (ingest, classify, extract facts,
-    detect conflicts, draft the register) against every document in the pile."""
+    detect conflicts, draft the register) against every document in the pile.
+    llm_provider optionally overrides LLM_PROVIDER for this run only (one of
+    fake/anthropic/gemini) — omit to use the env-configured default."""
     with SessionLocal() as db:
         documents = db.query(Document).filter(Document.pile_id == pile_id).all()
         if not documents:
             raise ValueError("pile has no documents to run against")
         document_ids = [str(d.id) for d in documents]
-    return await _run_graph(pile_id, shared_state.graph, {"pile_id": pile_id, "document_ids": document_ids})
+    return await _run_graph(
+        pile_id, shared_state.graph, {"pile_id": pile_id, "llm_provider": llm_provider, "document_ids": document_ids}
+    )
 
 
 @mcp.tool()
-async def start_examine(pile_id: str) -> dict:
+async def start_examine(pile_id: str, llm_provider: str | None = None) -> dict:
     """Movement 2: check the pile's already-extracted facts against its rules."""
-    return await _run_graph(pile_id, shared_state.examine_graph, {"pile_id": pile_id})
+    return await _run_graph(pile_id, shared_state.examine_graph, {"pile_id": pile_id, "llm_provider": llm_provider})
 
 
 @mcp.tool()

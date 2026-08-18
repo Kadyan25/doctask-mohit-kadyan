@@ -4,11 +4,20 @@ import { DeliverableView } from "../components/DeliverableView";
 import { ReviewQueue } from "../components/ReviewQueue";
 
 const STORAGE_KEY = "docdesk.activePile";
+const PROVIDER_STORAGE_KEY = "docdesk.llmProvider";
 
 interface StoredPile {
   id: string;
   name: string;
 }
+
+type LLMProvider = "fake" | "gemini" | "anthropic";
+
+const PROVIDER_LABELS: Record<LLMProvider, string> = {
+  fake: "Fake (free, deterministic)",
+  gemini: "Gemini (real, free tier)",
+  anthropic: "Anthropic (real, paid)",
+};
 
 export function Dashboard() {
   const [pile, setPile] = useState<StoredPile | null>(() => {
@@ -26,6 +35,14 @@ export function Dashboard() {
   const [reviewItems, setReviewItems] = useState<PendingReviewItem[]>([]);
   const [deliverable, setDeliverable] = useState<DeliverableSection[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [provider, setProvider] = useState<LLMProvider>(
+    () => (localStorage.getItem(PROVIDER_STORAGE_KEY) as LLMProvider | null) ?? "fake"
+  );
+
+  function handleProviderChange(next: LLMProvider) {
+    setProvider(next);
+    localStorage.setItem(PROVIDER_STORAGE_KEY, next);
+  }
 
   useEffect(() => {
     if (pile) refresh(pile.id);
@@ -82,8 +99,8 @@ export function Dashboard() {
   async function handleStartRun() {
     if (!pile) return;
     setBusy(true);
-    setStatus("Running Movement 1 (understand)...");
-    const run = await api.startRun(pile.id);
+    setStatus(`Running Movement 1 (understand) via ${PROVIDER_LABELS[provider]}...`);
+    const run = await api.startRun(pile.id, provider);
     setHasRun(true);
     setStatus(`Run ${run.status}`);
     await refresh(pile.id);
@@ -100,8 +117,8 @@ export function Dashboard() {
   async function handleStartExamine() {
     if (!pile) return;
     setBusy(true);
-    setStatus("Running Movement 2 (examine)...");
-    const run = await api.startExamine(pile.id);
+    setStatus(`Running Movement 2 (examine) via ${PROVIDER_LABELS[provider]}...`);
+    const run = await api.startExamine(pile.id, provider);
     setStatus(`Examine ${run.status}`);
     await refresh(pile.id);
     setBusy(false);
@@ -138,6 +155,22 @@ export function Dashboard() {
       <div className="app-header">
         <h1>Document Health Register</h1>
         <p>An agentic system that understands, examines, and stays current on a pile of project documents.</p>
+      </div>
+
+      <div className="row provider-select">
+        <label htmlFor="llm-provider">LLM provider</label>
+        <select
+          id="llm-provider"
+          className="input"
+          value={provider}
+          onChange={(e) => handleProviderChange(e.target.value as LLMProvider)}
+        >
+          {(Object.keys(PROVIDER_LABELS) as LLMProvider[]).map((p) => (
+            <option key={p} value={p}>
+              {PROVIDER_LABELS[p]}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="stepper">

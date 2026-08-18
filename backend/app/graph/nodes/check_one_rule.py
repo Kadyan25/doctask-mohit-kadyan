@@ -8,7 +8,7 @@ def check_one_rule(state: ExamineState) -> dict:
     """One branch of the Send fan-out — runs once per rule, in parallel with
     every other rule's branch. Reads facts already extracted by Movement 1;
     Movement 2 never re-parses or re-extracts, it only re-examines."""
-    client = get_llm_client()
+    client = get_llm_client(state.get("llm_provider"))
     pile_id = state["pile_id"]
     rule = state["current_rule"]
 

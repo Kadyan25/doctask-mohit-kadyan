@@ -31,6 +31,13 @@ class DocumentRead(BaseModel):
     ingested_at: datetime
 
 
+class RunCreate(BaseModel):
+    """llm_provider overrides LLM_PROVIDER for this run only — omit (or send
+    null) to use the env-configured default."""
+
+    llm_provider: Optional[str] = None
+
+
 class RunRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

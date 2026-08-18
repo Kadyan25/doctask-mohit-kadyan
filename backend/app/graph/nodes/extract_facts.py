@@ -6,7 +6,7 @@ from app.services.llm_client import get_llm_client
 
 
 def extract_facts(state: PipelineState) -> PipelineState:
-    client = get_llm_client()
+    client = get_llm_client(state.get("llm_provider"))
     parsed_documents = state.get("parsed_documents", {})
     doc_types = state.get("doc_types", {})
     pile_id = state["pile_id"]

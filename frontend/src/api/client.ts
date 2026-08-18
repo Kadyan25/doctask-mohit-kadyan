@@ -82,11 +82,19 @@ export const api = {
     form.append("file", file);
     return request<DocumentRead>(`/piles/${pileId}/documents`, { method: "POST", body: form });
   },
-  startRun: (pileId: string) => request<RunRead>(`/piles/${pileId}/runs`, { method: "POST" }),
+  startRun: (pileId: string, llmProvider?: string) =>
+    request<RunRead>(`/piles/${pileId}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ llm_provider: llmProvider ?? null }),
+    }),
   submitRule: (pileId: string, ruleText: string) =>
     request<Rule>(`/piles/${pileId}/rules`, { method: "POST", body: JSON.stringify({ rule_text: ruleText }) }),
   listRules: (pileId: string) => request<Rule[]>(`/piles/${pileId}/rules`),
-  startExamine: (pileId: string) => request<RunRead>(`/piles/${pileId}/examine`, { method: "POST" }),
+  startExamine: (pileId: string, llmProvider?: string) =>
+    request<RunRead>(`/piles/${pileId}/examine`, {
+      method: "POST",
+      body: JSON.stringify({ llm_provider: llmProvider ?? null }),
+    }),
   listReview: (pileId: string) => request<PendingReviewItem[]>(`/piles/${pileId}/review`),
   approve: (itemId: string, reviewer: string) =>
     request<PendingReviewItem>(`/review/${itemId}/approve`, {

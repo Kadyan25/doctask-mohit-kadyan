@@ -13,6 +13,7 @@ class ExamineState(TypedDict, total=False):
 
     pile_id: str
     run_id: str
+    llm_provider: Optional[str]  # per-run override of LLM_PROVIDER; None means use the env default
     rules: list[dict]  # [{id, rule_text}, ...], loaded once
     current_rule: dict  # set only on the per-branch Send copy of state
     findings: Annotated[list[dict], operator.add]

@@ -12,7 +12,7 @@ def incremental_extract(state: PipelineState) -> PipelineState:
     query, so downstream conflict detection and drafting see the complete
     picture without re-running extraction on anything already processed.
     """
-    client = get_llm_client()
+    client = get_llm_client(state.get("llm_provider"))
     parsed_documents = state.get("parsed_documents", {})
     doc_types = state.get("doc_types", {})
     pile_id = state["pile_id"]
