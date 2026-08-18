@@ -20,7 +20,7 @@ from app.services.fact_analysis import (
 )
 
 _INJECTION_PATTERN = re.compile(
-    r"(?i)(system note|ignore (all|previous) instructions|pre-approved"
+    r"(?i)(system note|ignore (all |any |previous |prior )*instructions|pre-approved"
     r"|skip (further )?review|mark (all|this|it) .*(compliant|approved))"
 )
 
