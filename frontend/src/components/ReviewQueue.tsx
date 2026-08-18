@@ -10,7 +10,7 @@ interface Props {
 
 export function ReviewQueue({ items, onApprove, onReject, busyId }: Props) {
   if (items.length === 0) {
-    return <p>No review items yet — start a run against some documents first.</p>;
+    return <p className="empty-state">No review items yet — start a run against some documents first.</p>;
   }
   return (
     <div>

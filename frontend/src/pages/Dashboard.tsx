@@ -1,159 +1,273 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type DeliverableSection, type PendingReviewItem, type Rule } from "../api/client";
 import { DeliverableView } from "../components/DeliverableView";
 import { ReviewQueue } from "../components/ReviewQueue";
 
+const STORAGE_KEY = "docdesk.activePile";
+
+interface StoredPile {
+  id: string;
+  name: string;
+}
+
 export function Dashboard() {
-  const [pileId, setPileId] = useState<string | null>(null);
+  const [pile, setPile] = useState<StoredPile | null>(() => {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  });
   const [pileName, setPileName] = useState("");
   const [files, setFiles] = useState<FileList | null>(null);
+  const [uploadedCount, setUploadedCount] = useState(0);
   const [ruleText, setRuleText] = useState("");
   const [rules, setRules] = useState<Rule[]>([]);
   const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [hasRun, setHasRun] = useState(false);
   const [reviewItems, setReviewItems] = useState<PendingReviewItem[]>([]);
   const [deliverable, setDeliverable] = useState<DeliverableSection[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (pile) refresh(pile.id);
+  }, []);
+
+  function persistPile(next: StoredPile | null) {
+    setPile(next);
+    if (next) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    else localStorage.removeItem(STORAGE_KEY);
+  }
+
   async function handleCreatePile() {
     if (!pileName.trim()) return;
-    const pile = await api.createPile(pileName.trim());
-    setPileId(pile.id);
-    setStatus(`Pile created: ${pile.id}`);
+    const created = await api.createPile(pileName.trim());
+    persistPile({ id: created.id, name: created.name });
+    setStatus(`Pile "${created.name}" created`);
+  }
+
+  function handleForgetPile() {
+    persistPile(null);
+    setUploadedCount(0);
+    setHasRun(false);
+    setReviewItems([]);
+    setDeliverable([]);
+    setRules([]);
+    setStatus("");
   }
 
   async function handleUpload() {
-    if (!pileId || !files) return;
-    setStatus("Uploading...");
+    if (!pile || !files) return;
+    setBusy(true);
+    setStatus(`Uploading ${files.length} document(s)...`);
     for (const file of Array.from(files)) {
-      await api.uploadDocument(pileId, file);
+      await api.uploadDocument(pile.id, file);
     }
+    setUploadedCount((n) => n + files.length);
+    setFiles(null);
     setStatus(`Uploaded ${files.length} document(s)`);
+    setBusy(false);
   }
 
-  async function refresh(currentPileId: string) {
+  async function refresh(pileId: string) {
     const [items, sections, currentRules] = await Promise.all([
-      api.listReview(currentPileId),
-      api.getDeliverable(currentPileId),
-      api.listRules(currentPileId),
+      api.listReview(pileId),
+      api.getDeliverable(pileId),
+      api.listRules(pileId),
     ]);
     setReviewItems(items);
     setDeliverable(sections);
     setRules(currentRules);
+    if (sections.length > 0) setHasRun(true);
   }
 
   async function handleStartRun() {
-    if (!pileId) return;
+    if (!pile) return;
+    setBusy(true);
     setStatus("Running Movement 1 (understand)...");
-    const run = await api.startRun(pileId);
+    const run = await api.startRun(pile.id);
+    setHasRun(true);
     setStatus(`Run ${run.status}`);
-    await refresh(pileId);
+    await refresh(pile.id);
+    setBusy(false);
   }
 
   async function handleAddRule() {
-    if (!pileId || !ruleText.trim()) return;
-    await api.submitRule(pileId, ruleText.trim());
+    if (!pile || !ruleText.trim()) return;
+    await api.submitRule(pile.id, ruleText.trim());
     setRuleText("");
-    await refresh(pileId);
+    await refresh(pile.id);
   }
 
   async function handleStartExamine() {
-    if (!pileId) return;
+    if (!pile) return;
+    setBusy(true);
     setStatus("Running Movement 2 (examine)...");
-    const run = await api.startExamine(pileId);
+    const run = await api.startExamine(pile.id);
     setStatus(`Examine ${run.status}`);
-    await refresh(pileId);
+    await refresh(pile.id);
+    setBusy(false);
   }
 
   async function handleApprove(itemId: string) {
-    if (!pileId) return;
+    if (!pile) return;
     setBusyId(itemId);
     await api.approve(itemId, "mohit");
-    await refresh(pileId);
+    await refresh(pile.id);
     setBusyId(null);
   }
 
   async function handleReject(itemId: string) {
-    if (!pileId) return;
+    if (!pile) return;
     setBusyId(itemId);
     await api.reject(itemId, "mohit");
-    await refresh(pileId);
+    await refresh(pile.id);
     setBusyId(null);
   }
 
-  return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
-      <h1>Document Health Register</h1>
+  const steps = [
+    { label: "Pile", done: !!pile },
+    { label: "Documents", done: uploadedCount > 0 },
+    { label: "Understand", done: hasRun },
+    { label: "Rules & Examine", done: rules.length > 0 },
+    { label: "Review", done: reviewItems.length > 0 && reviewItems.every((i) => i.status !== "pending") },
+    { label: "Register", done: deliverable.length > 0 },
+  ];
+  const activeIndex = steps.findIndex((s) => !s.done);
 
-      <section style={{ marginBottom: "1.5rem" }}>
-        <h2>1. Pile</h2>
-        {pileId ? (
-          <p>
-            Active pile: <code>{pileId}</code>
-          </p>
+  return (
+    <main className="app">
+      <div className="app-header">
+        <h1>Document Health Register</h1>
+        <p>An agentic system that understands, examines, and stays current on a pile of project documents.</p>
+      </div>
+
+      <div className="stepper">
+        {steps.map((s, i) => (
+          <div key={s.label} className={`step ${s.done ? "done" : i === activeIndex ? "active" : ""}`}>
+            <span className="step-num">{s.done ? "✓" : i + 1}</span>
+            {s.label}
+          </div>
+        ))}
+      </div>
+
+      <section className="card">
+        <div className="card-title">
+          <span className="step-num">1</span> Pile
+        </div>
+        {pile ? (
+          <div className="pile-identity">
+            <span className="pile-name">{pile.name}</span>
+            <span className="pile-id mono">{pile.id}</span>
+            <button className="btn btn-ghost" onClick={handleForgetPile} style={{ marginLeft: "auto" }}>
+              Switch pile
+            </button>
+          </div>
         ) : (
-          <div style={{ display: "flex", gap: "0.5rem" }}>
+          <div className="row">
             <input
+              className="input"
               placeholder="Pile name (e.g. atlas-migration)"
               value={pileName}
               onChange={(e) => setPileName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreatePile()}
             />
-            <button onClick={handleCreatePile}>Create pile</button>
+            <button className="btn btn-primary" onClick={handleCreatePile}>
+              Create pile
+            </button>
           </div>
         )}
       </section>
 
-      {pileId && (
+      {pile && (
         <>
-          <section style={{ marginBottom: "1.5rem" }}>
-            <h2>2. Documents</h2>
-            <input type="file" multiple onChange={(e) => setFiles(e.target.files)} />
-            <button onClick={handleUpload} disabled={!files}>
-              Upload
-            </button>
+          <section className="card">
+            <div className="card-title">
+              <span className="step-num">2</span> Documents
+              {uploadedCount > 0 && <span className="card-title-sub">{uploadedCount} uploaded this session</span>}
+            </div>
+            <div className="row">
+              <div className="file-picker">
+                <span className="file-picker-label">
+                  {files ? `${files.length} file(s) selected` : "Choose files..."}
+                </span>
+                <input type="file" multiple onChange={(e) => setFiles(e.target.files)} />
+              </div>
+              <button className="btn btn-primary" onClick={handleUpload} disabled={!files || busy}>
+                Upload
+              </button>
+            </div>
           </section>
 
-          <section style={{ marginBottom: "1.5rem" }}>
-            <h2>3. Understand (Movement 1)</h2>
-            <button onClick={handleStartRun}>Start run</button>
-            <button onClick={() => refresh(pileId)} style={{ marginLeft: "0.5rem" }}>
-              Refresh
-            </button>
+          <section className="card">
+            <div className="card-title">
+              <span className="step-num">3</span> Understand
+              <span className="card-title-sub">Movement 1 — ingest, classify, extract facts, detect conflicts</span>
+            </div>
+            <div className="row">
+              <button className="btn btn-primary" onClick={handleStartRun} disabled={busy}>
+                Start run
+              </button>
+              <button className="btn" onClick={() => refresh(pile.id)}>
+                Refresh
+              </button>
+            </div>
           </section>
 
-          <section style={{ marginBottom: "1.5rem" }}>
-            <h2>4. Rules &amp; Examine (Movement 2)</h2>
-            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+          <section className="card">
+            <div className="card-title">
+              <span className="step-num">4</span> Rules &amp; Examine
+              <span className="card-title-sub">Movement 2 — check the pile against your governance rules</span>
+            </div>
+            <div className="row" style={{ marginBottom: rules.length > 0 ? "0.75rem" : 0 }}>
               <input
-                style={{ flex: 1 }}
+                className="input"
                 placeholder="e.g. No status report may say on track while an open blocker exists..."
                 value={ruleText}
                 onChange={(e) => setRuleText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddRule()}
               />
-              <button onClick={handleAddRule}>Add rule</button>
+              <button className="btn" onClick={handleAddRule}>
+                Add rule
+              </button>
             </div>
             {rules.length > 0 && (
-              <ul style={{ fontSize: "0.85rem", color: "#555" }}>
+              <ul className="rules-list">
                 {rules.map((r) => (
                   <li key={r.id}>{r.rule_text}</li>
                 ))}
               </ul>
             )}
-            <button onClick={handleStartExamine}>Start examine</button>
+            <button className="btn btn-primary" onClick={handleStartExamine} disabled={busy || rules.length === 0}>
+              Start examine
+            </button>
           </section>
 
-          <section style={{ marginBottom: "1.5rem" }}>
-            <h2>5. Review queue</h2>
+          <section className="card">
+            <div className="card-title">
+              <span className="step-num">5</span> Review queue
+              {reviewItems.length > 0 && (
+                <span className="card-title-sub">
+                  {reviewItems.filter((i) => i.status === "pending").length} pending
+                </span>
+              )}
+            </div>
             <ReviewQueue items={reviewItems} onApprove={handleApprove} onReject={handleReject} busyId={busyId} />
           </section>
 
-          <section>
-            <h2>6. Project Health Register</h2>
+          <section className="card">
+            <div className="card-title">
+              <span className="step-num">6</span> Project Health Register
+            </div>
             <DeliverableView sections={deliverable} />
           </section>
         </>
       )}
 
-      {status && <p style={{ color: "#666", fontSize: "0.85rem" }}>{status}</p>}
+      {status && (
+        <div className="status-toast">
+          <span className={`status-dot ${busy ? "busy" : ""}`} />
+          {status}
+        </div>
+      )}
     </main>
   );
 }

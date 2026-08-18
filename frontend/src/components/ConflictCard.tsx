@@ -9,24 +9,27 @@ interface Props {
 
 export function ConflictCard({ item, onApprove, onReject, busy }: Props) {
   const { description, citations, conflict_type, rule_text } = item.payload;
-  const label = conflict_type ?? (rule_text ? `finding: ${rule_text.slice(0, 60)}...` : item.item_type);
+  const isFinding = item.item_type === "finding";
+  const label = conflict_type ?? (rule_text ? rule_text : item.item_type);
+
   return (
-    <div style={{ border: "1px solid #ccc", borderRadius: 8, padding: "0.75rem 1rem", marginBottom: "0.75rem" }}>
-      <div style={{ fontSize: "0.75rem", textTransform: "uppercase", color: "#888" }}>{label}</div>
-      <p style={{ margin: "0.25rem 0" }}>{description}</p>
-      <div style={{ fontSize: "0.75rem", color: "#666" }}>Citations: {citations?.join(", ")}</div>
+    <div className="queue-item">
+      <span className={`badge ${isFinding ? "badge-finding" : "badge-conflict"}`}>{label}</span>
+      <p className="queue-item-desc">{description}</p>
+      {citations?.length > 0 && <div className="queue-item-citations">Citations: {citations.join(", ")}</div>}
       {item.status === "pending" ? (
-        <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem" }}>
-          <button disabled={busy} onClick={onApprove}>
+        <div className="queue-item-actions">
+          <button className="btn btn-success" disabled={busy} onClick={onApprove}>
             Approve
           </button>
-          <button disabled={busy} onClick={onReject}>
+          <button className="btn btn-danger" disabled={busy} onClick={onReject}>
             Reject
           </button>
         </div>
       ) : (
-        <div style={{ marginTop: "0.5rem", fontWeight: 600 }}>
-          {item.status} {item.reviewer ? `by ${item.reviewer}` : ""}
+        <div className="queue-item-decided">
+          <span className={`badge badge-status-${item.status}`}>{item.status}</span>
+          {item.reviewer && <span>by {item.reviewer}</span>}
         </div>
       )}
     </div>
