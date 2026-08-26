@@ -1,8 +1,7 @@
-import json
-
 from app.db.session import SessionLocal
 from app.graph.state import PipelineState
 from app.services.deliverable import upsert_section as _upsert_section
+from app.services.fact_analysis import parse_fact_json
 
 
 def draft_deliverable(state: PipelineState) -> PipelineState:
@@ -37,18 +36,29 @@ def draft_deliverable(state: PipelineState) -> PipelineState:
 
     milestone_lines = []
     for f in milestone_facts:
-        data = json.loads(f["value"])
-        milestone_lines.append(f"- {f['key']}: owner {data['owner']}, due {data['due']} ({f['citation_location']})")
+        data = parse_fact_json(f["value"])
+        if data is None:
+            # A real provider returned a non-JSON milestone value — render it raw
+            # rather than crashing the whole draft on one malformed fact.
+            milestone_lines.append(f"- {f['key']}: {f['value']} ({f['citation_location']})")
+        else:
+            milestone_lines.append(
+                f"- {f['key']}: owner {data.get('owner', '?')}, due {data.get('due', '?')} ({f['citation_location']})"
+            )
     milestones_section = (
         "# Milestones\n\n" + "\n".join(milestone_lines) if milestone_lines else "# Milestones\n\nNo milestones extracted."
     )
 
     action_lines = []
     for f in action_facts:
-        data = json.loads(f["value"])
-        action_lines.append(
-            f"- {f['key']}: {data['description']} — due {data['due']}, status {data['status']} ({f['citation_location']})"
-        )
+        data = parse_fact_json(f["value"])
+        if data is None:
+            action_lines.append(f"- {f['key']}: {f['value']} ({f['citation_location']})")
+        else:
+            action_lines.append(
+                f"- {f['key']}: {data.get('description', '')} — due {data.get('due', '?')}, "
+                f"status {data.get('status', '?')} ({f['citation_location']})"
+            )
     action_section = (
         "# Action Items\n\n" + "\n".join(action_lines) if action_lines else "# Action Items\n\nNo action items extracted."
     )

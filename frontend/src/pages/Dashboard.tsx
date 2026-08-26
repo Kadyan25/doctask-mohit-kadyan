@@ -19,10 +19,19 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   anthropic: "Anthropic (real, paid)",
 };
 
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export function Dashboard() {
   const [pile, setPile] = useState<StoredPile | null>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as StoredPile) : null;
+    } catch {
+      // corrupt/unavailable localStorage must not white-screen the app on load
+      return null;
+    }
   });
   const [pileName, setPileName] = useState("");
   const [files, setFiles] = useState<FileList | null>(null);
@@ -45,7 +54,7 @@ export function Dashboard() {
   }
 
   useEffect(() => {
-    if (pile) refresh(pile.id);
+    if (pile) refresh(pile.id).catch((e) => setStatus(`Failed to load pile: ${errMsg(e)}`));
   }, []);
 
   function persistPile(next: StoredPile | null) {
@@ -56,9 +65,13 @@ export function Dashboard() {
 
   async function handleCreatePile() {
     if (!pileName.trim()) return;
-    const created = await api.createPile(pileName.trim());
-    persistPile({ id: created.id, name: created.name });
-    setStatus(`Pile "${created.name}" created`);
+    try {
+      const created = await api.createPile(pileName.trim());
+      persistPile({ id: created.id, name: created.name });
+      setStatus(`Pile "${created.name}" created`);
+    } catch (e) {
+      setStatus(`Failed to create pile: ${errMsg(e)}`);
+    }
   }
 
   function handleForgetPile() {
@@ -73,15 +86,21 @@ export function Dashboard() {
 
   async function handleUpload() {
     if (!pile || !files) return;
+    const count = files.length;
     setBusy(true);
-    setStatus(`Uploading ${files.length} document(s)...`);
-    for (const file of Array.from(files)) {
-      await api.uploadDocument(pile.id, file);
+    setStatus(`Uploading ${count} document(s)...`);
+    try {
+      for (const file of Array.from(files)) {
+        await api.uploadDocument(pile.id, file);
+      }
+      setUploadedCount((n) => n + count);
+      setFiles(null);
+      setStatus(`Uploaded ${count} document(s)`);
+    } catch (e) {
+      setStatus(`Upload failed: ${errMsg(e)}`);
+    } finally {
+      setBusy(false);
     }
-    setUploadedCount((n) => n + files.length);
-    setFiles(null);
-    setStatus(`Uploaded ${files.length} document(s)`);
-    setBusy(false);
   }
 
   async function refresh(pileId: string) {
@@ -100,44 +119,68 @@ export function Dashboard() {
     if (!pile) return;
     setBusy(true);
     setStatus(`Running Movement 1 (understand) via ${PROVIDER_LABELS[provider]}...`);
-    const run = await api.startRun(pile.id, provider);
-    setHasRun(true);
-    setStatus(`Run ${run.status}`);
-    await refresh(pile.id);
-    setBusy(false);
+    try {
+      const run = await api.startRun(pile.id, provider);
+      setHasRun(true);
+      setStatus(`Run ${run.status}`);
+      await refresh(pile.id);
+    } catch (e) {
+      setStatus(`Run failed: ${errMsg(e)}`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleAddRule() {
     if (!pile || !ruleText.trim()) return;
-    await api.submitRule(pile.id, ruleText.trim());
-    setRuleText("");
-    await refresh(pile.id);
+    try {
+      await api.submitRule(pile.id, ruleText.trim());
+      setRuleText("");
+      await refresh(pile.id);
+    } catch (e) {
+      setStatus(`Failed to add rule: ${errMsg(e)}`);
+    }
   }
 
   async function handleStartExamine() {
     if (!pile) return;
     setBusy(true);
     setStatus(`Running Movement 2 (examine) via ${PROVIDER_LABELS[provider]}...`);
-    const run = await api.startExamine(pile.id, provider);
-    setStatus(`Examine ${run.status}`);
-    await refresh(pile.id);
-    setBusy(false);
+    try {
+      const run = await api.startExamine(pile.id, provider);
+      setStatus(`Examine ${run.status}`);
+      await refresh(pile.id);
+    } catch (e) {
+      setStatus(`Examine failed: ${errMsg(e)}`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleApprove(itemId: string) {
     if (!pile) return;
     setBusyId(itemId);
-    await api.approve(itemId, "mohit");
-    await refresh(pile.id);
-    setBusyId(null);
+    try {
+      await api.approve(itemId, "mohit");
+      await refresh(pile.id);
+    } catch (e) {
+      setStatus(`Approve failed: ${errMsg(e)}`);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleReject(itemId: string) {
     if (!pile) return;
     setBusyId(itemId);
-    await api.reject(itemId, "mohit");
-    await refresh(pile.id);
-    setBusyId(null);
+    try {
+      await api.reject(itemId, "mohit");
+      await refresh(pile.id);
+    } catch (e) {
+      setStatus(`Reject failed: ${errMsg(e)}`);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   const steps = [

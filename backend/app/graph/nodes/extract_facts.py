@@ -2,7 +2,11 @@ from app.db.models import Fact
 from app.db.session import SessionLocal
 from app.graph.state import PipelineState
 from app.services.document_parser import parsed_document_from_dict
-from app.services.llm_client import get_llm_client
+from app.services.llm_client import (
+    detect_embedded_instructions,
+    get_llm_client,
+    merge_injection_facts,
+)
 
 
 def extract_facts(state: PipelineState) -> PipelineState:
@@ -17,6 +21,11 @@ def extract_facts(state: PipelineState) -> PipelineState:
             parsed = parsed_document_from_dict(parsed_dict)
             doc_type = doc_types.get(doc_id, "unknown")
             extracted = client.extract_facts(parsed, doc_type)
+            # Deterministic injection backstop for every provider (Behavior #8):
+            # a real model that misses an embedded instruction must not leave it
+            # unflagged. Deduped against any suspicious_instruction facts the
+            # provider already emitted, so the fake client isn't double-counted.
+            extracted = merge_injection_facts(extracted, detect_embedded_instructions(parsed))
             for fact in extracted:
                 row = Fact(
                     document_id=doc_id,

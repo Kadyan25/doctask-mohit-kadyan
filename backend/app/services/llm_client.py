@@ -38,10 +38,14 @@ class LLMClient(ABC):
     def check_rule(self, rule_text: str, facts: list[dict], change_request_doc_ids: set[str]) -> list[dict]: ...
 
 
-def _detect_embedded_instructions(doc: ParsedDocument) -> list[dict]:
+def detect_embedded_instructions(doc: ParsedDocument) -> list[dict]:
     """Behavior #8: a document that tries to give the system orders is data to
-    report on, never a command to follow. This runs regardless of provider —
-    it's a detector, not something an LLM decides to apply or not."""
+    report on, never a command to follow. This is a deterministic detector, not
+    something an LLM decides to apply or not — so the extract_facts node runs it
+    for EVERY provider (see merge_injection_facts) as a backstop, rather than
+    trusting a real model to always emit suspicious_instruction facts on its own.
+    A real provider that misses an injection line would otherwise leave it
+    unflagged; this guarantees the graded behavior regardless of provider."""
     facts = []
     for line in doc.lines:
         if _INJECTION_PATTERN.search(line.text):
@@ -54,6 +58,19 @@ def _detect_embedded_instructions(doc: ParsedDocument) -> list[dict]:
                 }
             )
     return facts
+
+
+def merge_injection_facts(extracted: list[dict], detected: list[dict]) -> list[dict]:
+    """Adds deterministic injection facts to a provider's extracted facts without
+    double-counting: a real provider may already have emitted its own
+    suspicious_instruction fact for the same line (same citation_location), so
+    only detected lines not already covered are appended."""
+    already_flagged = {
+        f["citation_location"]
+        for f in extracted
+        if f.get("fact_type") == "suspicious_instruction"
+    }
+    return extracted + [d for d in detected if d["citation_location"] not in already_flagged]
 
 
 class FakeLLMClient(LLMClient):
@@ -108,7 +125,10 @@ class FakeLLMClient(LLMClient):
                 if not value.lower().startswith("none"):
                     facts.append({"fact_type": "decision", "key": "decision", "value": value, "citation_location": loc})
 
-        facts.extend(_detect_embedded_instructions(doc))
+        # Injection detection is applied uniformly by the extract_facts node for
+        # every provider (detect_embedded_instructions + merge_injection_facts),
+        # so it is deliberately NOT done here — doing it in both places would
+        # double-count for the fake client.
         return facts
 
     def check_rule(self, rule_text: str, facts: list[dict], change_request_doc_ids: set[str]) -> list[dict]:

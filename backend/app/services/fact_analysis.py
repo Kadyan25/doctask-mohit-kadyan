@@ -10,6 +10,20 @@ import json
 from collections import defaultdict
 
 
+def parse_fact_json(value: str) -> dict | None:
+    """milestone/action_item fact values are JSON-encoded strings (see the LLM
+    client's schema). The fake client always emits valid JSON, but a real
+    provider can occasionally return a malformed or non-object value — parsing it
+    raw would crash a core pipeline node (find_stale_action_items,
+    draft_deliverable) on one bad fact. Returns the decoded dict, or None if the
+    value isn't valid JSON object, so callers can skip/degrade instead of crash."""
+    try:
+        decoded = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
 def group_facts_by_document(facts: list[dict]) -> dict[str, list[dict]]:
     by_doc = defaultdict(list)
     for f in facts:
@@ -112,17 +126,19 @@ def find_stale_action_items(facts: list[dict], min_occurrences: int = 3) -> list
     for d in meeting_docs:
         for f in by_doc[d]:
             if f["fact_type"] == "action_item":
-                value = json.loads(f["value"])
+                value = parse_fact_json(f["value"])
+                if value is None:
+                    continue  # malformed action_item value from a provider — skip, don't crash
                 occurrences[f["key"]].append((period_of(by_doc, d), value, f["citation_location"]))
 
     results = []
     for item_id, occs in occurrences.items():
-        still_open = [o for o in occs if o[1]["status"] == "open"]
+        still_open = [o for o in occs if o[1].get("status") == "open"]
         if len(still_open) >= min_occurrences:
             results.append(
                 {
                     "description": (
-                        f'Action item {item_id} ("{still_open[0][1]["description"]}") has stayed '
+                        f'Action item {item_id} ("{still_open[0][1].get("description", "")}") has stayed '
                         f"open across {len(still_open)} consecutive meetings with no escalation."
                     ),
                     "citations": [o[2] for o in still_open],
