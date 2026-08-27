@@ -415,7 +415,7 @@ export function Dashboard() {
             <div className="card-title">
               <span className="step-num">6</span> Project Health Register
             </div>
-            <DeliverableView sections={deliverable} />
+            <DeliverableView sections={deliverable} reviewItems={reviewItems} />
           </section>
         </>
       )}
