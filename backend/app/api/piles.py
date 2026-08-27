@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -20,7 +20,7 @@ from app.api.schemas import (
 )
 from app.config import settings
 from app.db.models import ChangelogEntry, DeliverableSection, Document, PendingReview, Pile, Rule, Run
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.services.document_parser import SUPPORTED_EXTENSIONS
 
 router = APIRouter(prefix="/piles", tags=["piles"])
@@ -31,6 +31,32 @@ _VALID_LLM_PROVIDERS = {"fake", "anthropic", "gemini"}
 def _validate_llm_provider(provider: str | None) -> None:
     if provider is not None and provider not in _VALID_LLM_PROVIDERS:
         raise HTTPException(status_code=422, detail=f"unknown llm_provider {provider!r} — expected one of {sorted(_VALID_LLM_PROVIDERS)}")
+
+
+async def _execute_graph_run(graph, run_id: str, thread_id: str, initial_state: dict) -> None:
+    """Runs a compiled graph to completion in the background, then records the
+    final status. Kept separate from the request so the HTTP call can return the
+    run id immediately and the UI can poll per-stage progress while it runs — the
+    "visible, watchable stages" the system is built around. Each node already
+    commits its own RunStageMetric as it finishes (see cost_tracker.timed_node),
+    so progress is observable mid-run without any extra plumbing here."""
+    config = {"configurable": {"thread_id": thread_id}}
+    status = "completed"
+    error: str | None = None
+    try:
+        await graph.ainvoke(initial_state, config=config)
+    except Exception as exc:  # noqa: BLE001 — surfaced via run.status, not swallowed
+        status = "failed"
+        error = str(exc)
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        if run is not None:
+            run.status = status
+            if error:
+                run.thread_id = f"{run.thread_id} ({error})"[:255]
+            run.completed_at = datetime.now(timezone.utc)
+            db.commit()
 
 
 @router.post("", response_model=PileRead)
@@ -110,7 +136,11 @@ def list_rules(pile_id: uuid.UUID, db: Session = Depends(get_db)) -> list[Rule]:
 
 @router.post("/{pile_id}/runs", response_model=RunRead)
 async def start_run(
-    pile_id: uuid.UUID, request: Request, payload: RunCreate = RunCreate(), db: Session = Depends(get_db)
+    pile_id: uuid.UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: RunCreate = RunCreate(),
+    db: Session = Depends(get_db),
 ) -> Run:
     _validate_llm_provider(payload.llm_provider)
     pile = db.get(Pile, pile_id)
@@ -127,38 +157,31 @@ async def start_run(
     db.commit()
     db.refresh(run)
 
-    graph = request.app.state.graph
-    config = {"configurable": {"thread_id": thread_id}}
+    # Return the run id now (status "running"); execute the graph in the
+    # background so the UI can poll GET /runs/{id}/stages and watch each stage
+    # land. Behavior is otherwise identical to the old synchronous run.
     initial_state = {
         "pile_id": str(pile_id),
         "run_id": str(run.id),
         "llm_provider": payload.llm_provider,
         "document_ids": [str(d.id) for d in documents],
     }
-
-    try:
-        await graph.ainvoke(initial_state, config=config)
-        run.status = "completed"
-    except Exception as exc:  # noqa: BLE001 — surfaced via run.status, not swallowed
-        run.status = "failed"
-        run.thread_id = f"{thread_id} ({exc})"[:255]
-    finally:
-        run.completed_at = datetime.now(timezone.utc)
-        db.add(run)
-        db.commit()
-        db.refresh(run)
-
+    background_tasks.add_task(_execute_graph_run, request.app.state.graph, str(run.id), thread_id, initial_state)
     return run
 
 
 @router.post("/{pile_id}/examine", response_model=RunRead)
 async def start_examine(
-    pile_id: uuid.UUID, request: Request, payload: RunCreate = RunCreate(), db: Session = Depends(get_db)
+    pile_id: uuid.UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: RunCreate = RunCreate(),
+    db: Session = Depends(get_db),
 ) -> Run:
     """Movement 2: re-examines facts Movement 1 already extracted against the
     pile's rules. Does not re-parse or re-extract — if you haven't run
     `/runs` yet, there are no facts to check and every rule will honestly
-    find nothing, not fail."""
+    find nothing, not fail. Runs in the background like /runs so progress polls."""
     _validate_llm_provider(payload.llm_provider)
     pile = db.get(Pile, pile_id)
     if pile is None:
@@ -170,22 +193,10 @@ async def start_examine(
     db.commit()
     db.refresh(run)
 
-    graph = request.app.state.examine_graph
-    config = {"configurable": {"thread_id": thread_id}}
     initial_state = {"pile_id": str(pile_id), "run_id": str(run.id), "llm_provider": payload.llm_provider}
-
-    try:
-        await graph.ainvoke(initial_state, config=config)
-        run.status = "completed"
-    except Exception as exc:  # noqa: BLE001 — surfaced via run.status, not swallowed
-        run.status = "failed"
-        run.thread_id = f"{thread_id} ({exc})"[:255]
-    finally:
-        run.completed_at = datetime.now(timezone.utc)
-        db.add(run)
-        db.commit()
-        db.refresh(run)
-
+    background_tasks.add_task(
+        _execute_graph_run, request.app.state.examine_graph, str(run.id), thread_id, initial_state
+    )
     return run
 
 

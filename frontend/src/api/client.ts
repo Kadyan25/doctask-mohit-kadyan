@@ -60,6 +60,21 @@ export interface DeliverableSection {
   updated_at: string;
 }
 
+export interface RunStage {
+  stage_name: string;
+  total_duration_ms: number;
+  call_count: number;
+  tokens_used: number | null;
+  cost_estimate: number | null;
+}
+
+export interface RunStages {
+  run_id: string;
+  status: string;
+  total_duration_ms: number;
+  stages: RunStage[];
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const isFormData = options?.body instanceof FormData;
   const res = await fetch(`${BASE}${path}`, {
@@ -107,4 +122,5 @@ export const api = {
       body: JSON.stringify({ reviewer }),
     }),
   getDeliverable: (pileId: string) => request<DeliverableSection[]>(`/piles/${pileId}/deliverable`),
+  getRunStages: (runId: string) => request<RunStages>(`/runs/${runId}/stages`),
 };

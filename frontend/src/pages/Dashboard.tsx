@@ -1,10 +1,27 @@
 import { useEffect, useState } from "react";
-import { api, type DeliverableSection, type PendingReviewItem, type Rule } from "../api/client";
+import { api, type DeliverableSection, type PendingReviewItem, type RunStages, type Rule } from "../api/client";
 import { DeliverableView } from "../components/DeliverableView";
 import { ReviewQueue } from "../components/ReviewQueue";
 
 const STORAGE_KEY = "docdesk.activePile";
 const PROVIDER_STORAGE_KEY = "docdesk.llmProvider";
+
+type StageDef = { key: string; label: string };
+
+// The fixed, ordered stages of each movement — the UI knows them so it can show
+// the not-yet-started ones as pending while polling the run's live progress.
+const UNDERSTAND_STAGES: StageDef[] = [
+  { key: "ingest", label: "Ingest" },
+  { key: "classify", label: "Classify" },
+  { key: "extract_facts", label: "Extract facts" },
+  { key: "detect_conflicts", label: "Detect conflicts" },
+  { key: "draft_deliverable", label: "Draft register" },
+];
+const EXAMINE_STAGES: StageDef[] = [
+  { key: "load_rules", label: "Load rules" },
+  { key: "check_one_rule", label: "Check rules" },
+  { key: "produce_findings", label: "Produce findings" },
+];
 
 interface StoredPile {
   id: string;
@@ -47,6 +64,8 @@ export function Dashboard() {
   const [provider, setProvider] = useState<LLMProvider>(
     () => (localStorage.getItem(PROVIDER_STORAGE_KEY) as LLMProvider | null) ?? "fake"
   );
+  const [runStages, setRunStages] = useState<RunStages | null>(null);
+  const [runKind, setRunKind] = useState<"understand" | "examine" | null>(null);
 
   function handleProviderChange(next: LLMProvider) {
     setProvider(next);
@@ -115,14 +134,33 @@ export function Dashboard() {
     if (sections.length > 0) setHasRun(true);
   }
 
+  // Runs now execute in the background; poll per-stage progress until the run
+  // settles, so the UI can show each stage landing in real time.
+  async function pollRunStages(runId: string) {
+    for (;;) {
+      let stages: RunStages;
+      try {
+        stages = await api.getRunStages(runId);
+      } catch {
+        return;
+      }
+      setRunStages(stages);
+      if (stages.status !== "running") return;
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+
   async function handleStartRun() {
     if (!pile) return;
     setBusy(true);
+    setRunKind("understand");
+    setRunStages(null);
     setStatus(`Running Movement 1 (understand) via ${PROVIDER_LABELS[provider]}...`);
     try {
       const run = await api.startRun(pile.id, provider);
       setHasRun(true);
-      setStatus(`Run ${run.status}`);
+      await pollRunStages(run.id);
+      setStatus("Understand run complete");
       await refresh(pile.id);
     } catch (e) {
       setStatus(`Run failed: ${errMsg(e)}`);
@@ -145,10 +183,13 @@ export function Dashboard() {
   async function handleStartExamine() {
     if (!pile) return;
     setBusy(true);
+    setRunKind("examine");
+    setRunStages(null);
     setStatus(`Running Movement 2 (examine) via ${PROVIDER_LABELS[provider]}...`);
     try {
       const run = await api.startExamine(pile.id, provider);
-      setStatus(`Examine ${run.status}`);
+      await pollRunStages(run.id);
+      setStatus("Examine run complete");
       await refresh(pile.id);
     } catch (e) {
       setStatus(`Examine failed: ${errMsg(e)}`);
@@ -181,6 +222,45 @@ export function Dashboard() {
     } finally {
       setBusyId(null);
     }
+  }
+
+  function renderStagePanel(kind: "understand" | "examine", defs: StageDef[]) {
+    if (runKind !== kind || runStages === null) return null;
+    const done = new Set(runStages.stages.map((s) => s.stage_name));
+    const durById: Record<string, number> = {};
+    runStages.stages.forEach((s) => {
+      durById[s.stage_name] = s.total_duration_ms;
+    });
+    const running = runStages.status === "running";
+    let runningAssigned = false;
+
+    return (
+      <div className="stage-panel">
+        {defs.map((st) => {
+          let state: "done" | "running" | "pending";
+          if (done.has(st.key)) {
+            state = "done";
+          } else if (running && !runningAssigned) {
+            state = "running";
+            runningAssigned = true;
+          } else {
+            state = "pending";
+          }
+          return (
+            <div key={st.key} className={`stage-row ${state}`}>
+              <span className="stage-icon" />
+              <span className="stage-label">{st.label}</span>
+              {done.has(st.key) && <span className="stage-dur mono">{durById[st.key]} ms</span>}
+            </div>
+          );
+        })}
+        <div className="stage-total">
+          {running
+            ? "running…"
+            : `${runStages.status} · ${(runStages.total_duration_ms / 1000).toFixed(1)}s total`}
+        </div>
+      </div>
+    );
   }
 
   const steps = [
@@ -286,6 +366,7 @@ export function Dashboard() {
                 Refresh
               </button>
             </div>
+            {renderStagePanel("understand", UNDERSTAND_STAGES)}
           </section>
 
           <section className="card">
@@ -315,6 +396,7 @@ export function Dashboard() {
             <button className="btn btn-primary" onClick={handleStartExamine} disabled={busy || rules.length === 0}>
               Start examine
             </button>
+            {renderStagePanel("examine", EXAMINE_STAGES)}
           </section>
 
           <section className="card">
