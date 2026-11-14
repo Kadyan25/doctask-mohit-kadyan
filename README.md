@@ -2,7 +2,7 @@
 
 An agentic system that owns a pile of software-project-delivery documents end to end: understands them, checks them against your rules, and stays live as new documents arrive — with a human gate on everything it commits.
 
-Built for the SuperDocs Round 2 engineering task. Standalone — does not call SuperDocs' API (that's the separate Slack build in the sibling repo).
+Standalone — does not call any external document-management API; it owns ingestion, extraction, and the review queue itself.
 
 ## What it does
 
@@ -49,10 +49,7 @@ The same operations as the REST API, exposed as MCP tools at `/mcp` (streamable 
 
 ## Logged assumptions
 
-- Domain chosen (software project delivery docs) over the brief's other suggested domains (contracts, loans, insurance, clinical) because it needs no outside domain expertise to build a credible, deliberately-contradicting synthetic corpus — see the project's `CLAUDE.md` for the reasoning.
+- Domain chosen (software project delivery docs) over other candidate domains (contracts, loans, insurance, clinical) because it needs no outside domain expertise to build a credible, deliberately-contradicting synthetic corpus — see the project's `CLAUDE.md` for the reasoning.
 - Cost/time tracking (`GET /runs/{id}/cost`) reports real wall-clock duration per stage. Token counts and a dollar cost estimate stay null under `LLM_PROVIDER=fake` (the default) rather than fabricated — the fake client makes no real calls, so a made-up number would be worse than an honest gap. `AnthropicLLMClient`'s real calls carry actual usage data that could be threaded through if the real provider becomes the default.
 - Same-pile-hit-twice concurrency (two runs racing on identical work) is handled via database-level unique constraints and `INSERT ... ON CONFLICT`, not application-level locking — verified in `tests/test_concurrency.py`.
 - Uploading the same document twice into one pile is not deduped (no `content_hash` check at upload time) — it produces two independent extractions and visibly duplicated lines in the register. Known, not fixed; see `issues.md`. Beyond the canonical corpus, `tests/test_edge_cases.py` also covers malformed files, empty files, unicode content, prompt-injection phrasing variants (plus false-positive checks), unmatched rule text, and a 40-document scale test.
-
----
-Built for the SuperDocs Round 2 engineering task.
